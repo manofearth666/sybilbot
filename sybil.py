@@ -10,6 +10,8 @@ from telepot.delegate import pave_event_space, per_from_id, create_open, per_cha
 from tarotdeck import TarotDeck
 from logconfig import setup_logger
 
+import redis
+
 
 class Sybil(telepot.helper.ChatHandler):
     def __init__(self, *args, **kwargs):
@@ -17,7 +19,7 @@ class Sybil(telepot.helper.ChatHandler):
         self.deck = {}
         self.decks = {}
         self.from_id = 0
-        temp_deck = TarotDeck('jodocamoin')
+        temp_deck = TarotDeck('crowleythoth')
         self.deck_ref = temp_deck.deckRef
 
     def majors(self):
@@ -55,15 +57,18 @@ class Sybil(telepot.helper.ChatHandler):
 
         sender += ', chat_id {0}'.format(chat_id)
 
-        if from_id not in self.decks.keys():
+        if not redis.get(from_id):
             logging.info('initializing deck for {}'.format(sender))
-            self.deck = {'type': 'jodocamoin', 'composition': 'full_deck', 'deck_object': TarotDeck('jodocamoin')}
-            self.decks[from_id] = self.deck
+            self.deck = {'type': 'crowleythoth', 'composition': 'full_deck', 'deck_object': TarotDeck('crowleythoth')}
+            redis.set(from_id, 'crowleythoth')
             self.deck['deck_object'] = TarotDeck(self.deck['type'])
             shuffle(self.deck['deck_object'])
-            logging.info('Current decks: {}'.format(self.decks))
+            #logging.info('Current decks: {}'.format(self.decks))
         else:
-            self.deck = self.decks[from_id]
+            logging.info('redis deck for {} is {}'.format(from_id, redis.get(from_id)))
+            deck_type = redis.get(from_id)
+            self.deck = self.deck = {'type': deck_type, 'composition': 'full_deck', 'deck_object': TarotDeck(deck_type)}
+            shuffle(self.deck['deck_object'])
 
         if content_type == 'text':
             logging.info('Message from {}'.format(sender))
@@ -73,34 +78,37 @@ class Sybil(telepot.helper.ChatHandler):
             message_lower = message_text.lower()
             command_tokens = message_lower.split()
             
-            if command_tokens[0] in ('/majors', '/majors@sybilbot'): 
+            if command_tokens[0] in ('/majors', '/majors@sybilforkbot'): 
                 self.deck['composition'] = 'majors'
                 self.set_deck()
 
-            elif command_tokens[0] in ('/minors', '/minors@sybilbot'):
+            elif command_tokens[0] in ('/minors', '/minors@sybilforkbot'):
                 self.deck['composition'] = 'minors'
                 self.set_deck()
             
-            elif command_tokens[0] in ('/full' or '/full@sybilbot'):
+            elif command_tokens[0] in ('/full', '/full@sybilforkbot'):
                 self.deck['composition'] = 'full_deck'
                 self.set_deck()
             
-            elif command_tokens[0] in ('/shuffle', '/shuffle@sybilbot'):
+            elif command_tokens[0] in ('/shuffle', '/shuffle@sybilforkbot'):
                 self.set_deck()
                 self.sender.sendMessage('Shuffling the deck...')
             
-            elif command_tokens[0] in ('/settype', '/settype@sybilbot'):
+            elif command_tokens[0] in ('/settype', '/settype@sybilforkbot'):
                 
                 if command_tokens[1] not in self.deck_ref.keys():
                     logging.info('{} requested an invalid deck'.format(sender))
                     self.sender.sendMessage('Invalid deck type')
                 else:
+                    logging.info('deck switch reqest to {}, command_tokens: {}'.format(self.deck, command_tokens))
+                    logging.info('deck type: {}'.format(self.deck['type']))
                     self.deck['type'] = command_tokens[1]
                     self.deck['composition'] = 'full_deck'
                     self.set_deck()
+                    redis.set(from_id, command_tokens[1])
                     logging.info('{0} set deck as {1}'.format(sender, command_tokens[1]))
 
-            elif command_tokens[0] in ('/draw', '/draw@sybilbot'):
+            elif command_tokens[0] in ('/draw', '/draw@sybilforkbot'):
                 if len(self.deck['deck_object']) > 0:
                     card = self.deck['deck_object'].pop()
                     logging.info('{0} received {1}'.format(sender, card))
@@ -113,16 +121,15 @@ class Sybil(telepot.helper.ChatHandler):
                     self.sender.sendMessage('The deck is out of cards!')
                 self.sender.sendMessage('Your deck has {} cards left'.format(len(self.deck['deck_object'])))
 
-            elif command_tokens[0] in ('/listtypes', '/listtypes@sybilbot'):
+            elif command_tokens[0] in ('/listtypes', '/listtypes@sybilforkbot'):
                 decklist = ""
                 for entry in self.deck_ref.keys():
                     decklist += "{}: {}\n".format(entry, self.deck_ref[entry][3])
                 self.sender.sendMessage(decklist)
             
-            elif command_tokens[0] in ('/help', '/help@sybilbot'):
+            elif command_tokens[0] in ('/help', '/help@sybilforkbot'):
                 self.sender.sendMessage("All commands are prefixed by a forward slash (/), with no spaces between the" +
-                                        " slash and your command. Everyone has a seperate deck, which disappears after " + 
-                                        "10 minutes of inactivity. Dealt cards remain out of the deck until you issue a 'Majors', 'Minors', " +
+                                        " slash and your command. Dealt cards remain out of the deck until you issue a 'Majors', 'Minors', " +
                                         "'Full', 'Settype', or 'Shuffle' command.\n " +
                                         "These are the commands I currently understand:\n\n" +
                                         "Majors -- Set deck to deal only from the Major Arcana\n" +
@@ -134,12 +141,11 @@ class Sybil(telepot.helper.ChatHandler):
                                         "Draw -- Draw a card\n" +
                                         "Help -- This text\n")
 
-            self.decks[from_id] = self.deck
-
 if __name__ == '__main__':
     token = sys.argv[1]
     setup_logger('sybil')
     logging.info('Starting bot with token {}'.format(token))
+    redis = redis.StrictRedis(host='localhost', port=6379, db=0)
     sybil = telepot.DelegatorBot(token, [pave_event_space()(per_chat_id(), create_open, Sybil, timeout=600)])
     logging.info('Waiting for messages')
     MessageLoop(sybil).run_as_thread()
