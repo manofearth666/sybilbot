@@ -1,6 +1,12 @@
 import collections
 
-Card = collections.namedtuple('card', ['rank', 'kind', 'image'])
+# Card = collections.namedtuple('card', ['rank', 'kind', 'image'])
+
+class Card():
+  def __init__(self, rank, kind, image):
+    self.rank = rank
+    self.kind = kind
+    self.image = image
 
 
 class TarotDeck:

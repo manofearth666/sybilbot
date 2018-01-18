@@ -10,6 +10,7 @@ from telepot.delegate import pave_event_space, per_from_id, create_open, per_cha
 from tarotdeck import TarotDeck
 from logconfig import setup_logger
 
+import cPickle as pickle
 import redis
 
 
@@ -60,14 +61,12 @@ class Sybil(telepot.helper.ChatHandler):
         if not redis.get(from_id):
             logging.info('initializing deck for {}'.format(sender))
             self.deck = {'type': 'crowleythoth', 'composition': 'full_deck', 'deck_object': TarotDeck('crowleythoth')}
-            redis.set(from_id, 'crowleythoth')
             self.deck['deck_object'] = TarotDeck(self.deck['type'])
+            redis.set(from_id, pickle.dumps(self.deck))
             shuffle(self.deck['deck_object'])
             #logging.info('Current decks: {}'.format(self.decks))
         else:
-            logging.info('redis deck for {} is {}'.format(from_id, redis.get(from_id)))
-            deck_type = redis.get(from_id)
-            self.deck = self.deck = {'type': deck_type, 'composition': 'full_deck', 'deck_object': TarotDeck(deck_type)}
+            self.deck = pickle.loads(redis.get(from_id))
             shuffle(self.deck['deck_object'])
 
         if content_type == 'text':
@@ -105,7 +104,7 @@ class Sybil(telepot.helper.ChatHandler):
                     self.deck['type'] = command_tokens[1]
                     self.deck['composition'] = 'full_deck'
                     self.set_deck()
-                    redis.set(from_id, command_tokens[1])
+                    redis.set(from_id, self.deck)
                     logging.info('{0} set deck as {1}'.format(sender, command_tokens[1]))
 
             elif command_tokens[0] in ('/draw', '/draw@sybilforkbot'):
@@ -140,7 +139,8 @@ class Sybil(telepot.helper.ChatHandler):
                                         "jodocamoin Note: This reshuffles the deck\n" +
                                         "Draw -- Draw a card\n" +
                                         "Help -- This text\n")
-
+        redis.set(from_id, pickle.dumps(self.deck))
+        
 if __name__ == '__main__':
     token = sys.argv[1]
     setup_logger('sybil')
